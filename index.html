@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snake Arena</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #111;
+        font-family: Arial, sans-serif;
+        color: white;
+    }
+
+    canvas {
+        display: block;
+        background: #182018;
+    }
+
+    #ui {
+        position: fixed;
+        top: 15px;
+        left: 15px;
+        z-index: 10;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 18px;
+        backdrop-filter: blur(5px);
+    }
+
+    #gameOver {
+        position: fixed;
+        inset: 0;
+        display: none;
+        justify-content: center;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 20;
+    }
+
+    .window {
+        background: #222;
+        padding: 35px;
+        border-radius: 20px;
+        text-align: center;
+        box-shadow: 0 0 40px black;
+    }
+
+    button {
+        border: 0;
+        padding: 12px 25px;
+        border-radius: 10px;
+        font-size: 18px;
+        cursor: pointer;
+        background: #39d353;
+        color: white;
+    }
+
+    button:hover {
+        background: #2bb344;
+    }
+</style>
+</head>
+
+<body>
+
+<div id="ui">
+    🐍 Длина: <span id="score">10</span><br>
+    🤖 Ботов: <span id="bots">0</span><br>
+    👑 Босс: <span id="bossStatus">Нет</span>
+</div>
+
+<div id="gameOver">
+    <div class="window">
+        <h1>💀 Ты проиграл!</h1>
+        <p>Твоя длина: <span id="finalScore">0</span></p>
+        <button onclick="restartGame()">Играть снова</button>
+    </div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+resize();
+window.addEventListener("resize", resize);
+
+
+// ===============================
+// НАСТРОЙКИ ИГРЫ
+// ===============================
+
+const WORLD_SIZE = 5000;
+
+let cameraX = 0;
+let cameraY = 0;
+
+let foods = [];
+let snakes = [];
+
+let gameRunning = true;
+
+
+// ===============================
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ===============================
+
+function random(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function randomColor() {
+    const colors = [
+        "#ff4757",
+        "#ffa502",
+        "#2ed573",
+        "#1e90ff",
+        "#a55eea",
+        "#ff6b81",
+        "#18dcff"
+    ];
+
+    return colors[Math.floor(Math.random() * colors.length)];
+}
+
+
+// ===============================
+// ЕДА
+// ===============================
+
+function createFood(x, y, value = 1) {
+
+    foods.push({
+        x: x ?? random(50, WORLD_SIZE - 50),
+        y: y ?? random(50, WORLD_SIZE - 50),
+        radius: random(4, 8),
+        color: randomColor(),
+        value: value
+    });
+}
+
+
+// Создаём много еды
+for (let i = 0; i < 700; i++) {
+    createFood();
+}
+
+
+// ===============================
+// ЗМЕЙКА
+// ===============================
+
+class Snake {
+
+    constructor(x, y, color, isPlayer = false, isBoss = false) {
+
+        this.x = x;
+        this.y = y;
+
+        this.color = color;
+
+        this.isPlayer = isPlayer;
+        this.isBoss = isBoss;
+
+        this.angle = random(0, Math.PI * 2);
+
+        this.speed = isBoss ? 2.2 : 2.8;
+
+        this.radius = isBoss ? 22 : 12;
+
+        this.length = isBoss ? 70 : 15;
+
+        this.body = [];
+
+        for (let i = 0; i < this.length; i++) {
+
+            this.body.push({
+                x: this.x - Math.cos(this.angle) * i * 10,
+                y: this.y - Math.sin(this.angle) * i * 10
+            });
+
+        }
+
+        this.targetAngle = this.angle;
+
+        this.changeDirectionTimer = 0;
+    }
+
+
+    update() {
+
+        if (this.isPlayer) {
+
+            // Движение мышкой
+            const mouseX = mouse.x + cameraX;
+            const mouseY = mouse.y + cameraY;
+
+            this.targetAngle =
+                Math.atan2(
+                    mouseY - this.y,
+                    mouseX - this.x
+                );
+
+        } else {
+
+            this.changeDirectionTimer--;
+
+            if (this.changeDirectionTimer <= 0) {
+
+                this.targetAngle += random(-1, 1);
+
+                this.changeDirectionTimer =
+                    random(30, 150);
+            }
+        }
+
+
+        // Плавный поворот
+
+        let difference =
+            this.targetAngle - this.angle;
+
+        while (difference > Math.PI)
+            difference -= Math.PI * 2;
+
+        while (difference < -Math.PI)
+            difference += Math.PI * 2;
+
+        this.angle += difference * 0.08;
+
+
+        // Движение
+
+        this.x += Math.cos(this.angle) * this.speed;
+        this.y += Math.sin(this.angle) * this.speed;
+
+
+        // Не даём выйти за карту
+
+        if (this.x < 20) {
+            this.x = 20;
+            this.angle = 0;
+        }
+
+        if (this.y < 20) {
+            this.y = 20;
+            this.angle = Math.PI / 2;
+        }
+
+        if (this.x > WORLD_SIZE - 20) {
+            this.x = WORLD_SIZE - 20;
+            this.angle = Math.PI;
+        }
+
+        if (this.y > WORLD_SIZE - 20) {
+            this.y = WORLD_SIZE - 20;
+            this.angle = -Math.PI / 2;
+        }
+
+
+        // Добавляем голову
+
+        this.body.unshift({
+            x: this.x,
+            y: this.y
+        });
+
+
+        // Удаляем хвост
+
+        while (this.body.length > this.length) {
+            this.body.pop();
+        }
+    }
+
+
+    draw() {
+
+        // Тело
+
+        for (let i = this.body.length - 1; i >= 0; i--) {
+
+            const part = this.body[i];
+
+            const screenX = part.x - cameraX;
+            const screenY = part.y - cameraY;
+
+            ctx.beginPath();
+
+            ctx.arc(
+                screenX,
+                screenY,
+                this.radius,
+                0,
+                Math.PI * 2
+            );
+
+            ctx.fillStyle = this.color;
+
+            ctx.fill();
+        }
+
+
+        // Голова
+
+        const headX = this.x - cameraX;
+        const headY = this.y - cameraY;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            headX,
+            headY,
+            this.radius + 2,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle = this.color;
+
+        ctx.fill();
+
+
+        // Глаза
+
+        const eyeOffsetX =
+            Math.cos(this.angle - 0.5) * this.radius * 0.55;
+
+        const eyeOffsetY =
+            Math.sin(this.angle - 0.5) * this.radius * 0.55;
+
+        ctx.fillStyle = "white";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            headX + eyeOffsetX,
+            headY + eyeOffsetY,
+            this.radius * 0.28,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        const eye2OffsetX =
+            Math.cos(this.angle + 0.5) * this.radius * 0.55;
+
+        const eye2OffsetY =
+            Math.sin(this.angle + 0.5) * this.radius * 0.55;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            headX + eye2OffsetX,
+            headY + eye2OffsetY,
+            this.radius * 0.28,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        // Боссу добавляем корону
+
+        if (this.isBoss) {
+
+            ctx.font = "30px Arial";
+            ctx.textAlign = "center";
+
+            ctx.fillText(
+                "👑",
+                headX,
+                headY - this.radius - 15
+            );
+        }
+    }
+}
+
+
+// ===============================
+// ИГРОК
+// ===============================
+
+let player;
+
+
+function createPlayer() {
+
+    player = new Snake(
+        WORLD_SIZE / 2,
+        WORLD_SIZE / 2,
+        "#39d353",
+        true
+    );
+
+    snakes.push(player);
+}
+
+
+// ===============================
+// БОТЫ
+// ===============================
+
+function createBot() {
+
+    const bot = new Snake(
+        random(200, WORLD_SIZE - 200),
+        random(200, WORLD_SIZE - 200),
+        randomColor()
+    );
+
+    snakes.push(bot);
+}
+
+
+// Создаём ботов
+
+for (let i = 0; i < 12; i++) {
+    createBot();
+}// ===============================
+// БОСС
+// ===============================
+
+let boss = null;
+
+function spawnBoss() {
+
+    if (boss) return;
+
+    boss = new Snake(
+        random(500, WORLD_SIZE - 500),
+        random(500, WORLD_SIZE - 500),
+        "#ff2d55",
+        false,
+        true
+    );
+
+    snakes.push(boss);
+}
+
+
+// Через 15 секунд появляется босс
+
+setTimeout(() => {
+    spawnBoss();
+}, 15000);
+
+
+// ===============================
+// МЫШЬ
+// ===============================
+
+const mouse = {
+    x: canvas.width / 2,
+    y: canvas.height / 2
+};
+
+canvas.addEventListener("mousemove", function(event) {
+
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+
+});
+
+
+// ===============================
+// СЪЕДАНИЕ ЕДЫ
+// ===============================
+
+function checkFood() {
+
+    for (let s of snakes) {
+
+        for (let i = foods.length - 1; i >= 0; i--) {
+
+            const food = foods[i];
+
+            const d = Math.hypot(
+                s.x - food.x,
+                s.y - food.y
+            );
+
+            if (d < s.radius + food.radius + 5) {
+
+                s.length += food.value;
+
+                foods.splice(i, 1);
+
+                createFood();
+            }
+        }
+    }
+}
+
+
+// ===============================
+// СТОЛКНОВЕНИЯ
+// ===============================
+
+function checkCollisions() {
+
+    if (!player) return;
+
+
+    // Игрок против других змей
+
+    for (let s of snakes) {
+
+        if (s === player) continue;
+
+        for (let i = 5; i < s.body.length; i++) {
+
+            const part = s.body[i];
+
+            const d = Math.hypot(
+                player.x - part.x,
+                player.y - part.y
+            );
+
+            if (d < player.radius + s.radius * 0.8) {
+
+                gameOver();
+
+                return;
+            }
+        }
+    }
+
+
+    // Игрок против своего тела
+
+    for (let i = 20; i < player.body.length; i++) {
+
+        const part = player.body[i];
+
+        const d = Math.hypot(
+            player.x - part.x,
+            player.y - part.y
+        );
+
+        if (d < player.radius * 1.2) {
+
+            gameOver();
+
+            return;
+        }
+    }
+}
+
+
+// ===============================
+// КАМЕРА
+// ===============================
+
+function updateCamera() {
+
+    cameraX =
+        player.x - canvas.width / 2;
+
+    cameraY =
+        player.y - canvas.height / 2;
+
+
+    cameraX = Math.max(
+        0,
+        Math.min(
+            WORLD_SIZE - canvas.width,
+            cameraX
+        )
+    );
+
+    cameraY = Math.max(
+        0,
+        Math.min(
+            WORLD_SIZE - canvas.height,
+            cameraY
+        )
+    );
+}
+
+
+// ===============================
+// ОТРИСОВКА КАРТЫ
+// ===============================
+
+function drawWorld() {
+
+    ctx.fillStyle = "#182018";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    // Сетка
+
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.lineWidth = 1;
+
+    const gridSize = 100;
+
+    for (
+        let x = -cameraX % gridSize;
+        x < canvas.width;
+        x += gridSize
+    ) {
+
+        ctx.beginPath();
+
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+
+        ctx.stroke();
+    }
+
+
+    for (
+        let y = -cameraY % gridSize;
+        y < canvas.height;
+        y += gridSize
+    ) {
+
+        ctx.beginPath();
+
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+
+        ctx.stroke();
+    }
+
+
+    // Граница мира
+
+    ctx.strokeStyle = "#ff4757";
+    ctx.lineWidth = 5;
+
+    ctx.strokeRect(
+        -cameraX,
+        -cameraY,
+        WORLD_SIZE,
+        WORLD_SIZE
+    );
+}
+
+
+// ===============================
+// GAME OVER
+// ===============================
+
+function gameOver() {
+
+    gameRunning = false;
+
+    document.getElementById("finalScore")
+        .textContent = player.length;
+
+    document.getElementById("gameOver")
+        .style.display = "flex";
+}
+
+
+// ===============================
+// ПЕРЕЗАПУСК
+// ===============================
+
+function restartGame() {
+
+    foods = [];
+    snakes = [];
+
+    boss = null;
+
+    gameRunning = true;
+
+    for (let i = 0; i < 700; i++) {
+        createFood();
+    }
+
+    createPlayer();
+
+    for (let i = 0; i < 12; i++) {
+        createBot();
+    }
+
+    document.getElementById("gameOver")
+        .style.display = "none";
+
+    setTimeout(() => {
+
+        if (gameRunning) {
+            spawnBoss();
+        }
+
+    }, 15000);
+}
+
+
+// ===============================
+// ОСНОВНОЙ ЦИКЛ
+// ===============================
+
+function gameLoop() {
+
+    if (gameRunning) {
+
+        for (let s of snakes) {
+            s.update();
+        }
+
+        checkFood();
+
+        checkCollisions();
+
+        updateCamera();
+
+
+        // Рисуем
+
+        drawWorld();
+
+
+        // Еда
+
+        for (let food of foods) {
+
+            const x = food.x - cameraX;
+            const y = food.y - cameraY;
+
+            ctx.beginPath();
+
+            ctx.arc(
+                x,
+                y,
+                food.radius,
+                0,
+                Math.PI * 2
+            );
+
+            ctx.fillStyle = food.color;
+
+            ctx.fill();
+        }
+
+
+        // Змейки
+
+        for (let s of snakes) {
+            s.draw();
+        }
+
+
+        // UI
+
+        document.getElementById("score")
+            .textContent = player.length;
+
+        document.getElementById("bots")
+            .textContent = snakes.length - 1;
+
+        document.getElementById("bossStatus")
+            .textContent = boss ? "👑 Появился!" : "Нет";
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+createPlayer();
+
+gameLoop();
+
+</script>
+
+</body>
+</html>
